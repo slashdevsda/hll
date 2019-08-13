@@ -95,7 +95,7 @@ fn main() {
 
     
     for j in 1..30 {
-    total += j * 100000;
+    total += j * 10000;
         for i in 1..total {
             mset.add(&i)
         };
