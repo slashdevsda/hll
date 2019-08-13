@@ -1,7 +1,5 @@
-use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::convert::TryInto;
-use fasthash::{murmur2, Murmur2Hasher};
+use fasthash::{Murmur2Hasher};
 
 
 // data structure
@@ -12,12 +10,13 @@ struct HLL {
 }
 
 // constructor
-fn init_HLL(p: usize) -> HLL {
-    // p is the size of the bit-prefix
-    // m is the number of registers, 2^p
+fn init_hll(p: usize) -> HLL {
+    // `p` is the size of the bit-prefix
+    // `m` is the number of registers, 2^p
+    // `set` is the actual vector where registers are stored
     HLL{p: p as f64,
         m: (2 << p) as f64,
-        set: vec![0; (2 << p)]}
+        set: vec![0; 2 << p]}
 }
 
 impl HLL {
@@ -26,9 +25,12 @@ impl HLL {
         // first, we compute the hash.
         let h : u64 = hash(item);
 
-        // find the leftmost bit _after_ the p firsts bits
-        let phi_s = leftmost_pos(h, self.p as usize + 1);
+        // the firsts `p` bits, interpreted as an usize below, is the registry address
         let idx = get_first_x_bits(h, self.p as usize);
+
+        // find the leftmost bit _after_ the p firsts bits,
+        // skip p bits, previously used for address
+        let phi_s = leftmost_pos(h, self.p as usize + 1);
 
         
         // println!("hash          : {:b}", h);
@@ -42,15 +44,15 @@ impl HLL {
 
     fn estimate(&self) -> f64 {
         // essentially translating the paper here
-        let alpha_m : f64 = (0.7213 / (1.0 + 1.079 / self.m));        
+        // https://stefanheule.com/papers/edbt13-hyperloglog.pdf
+        let alpha_m : f64 = 0.7213 / (1.0 + 1.079 / self.m);
         let mut indicator: f64 = 0.0;
 
         for x in self.set.iter() {
             if *x != 0 {
-                indicator += (2_f64.powf(((1.0 - *x as f64))));
+                indicator += 2_f64.powf(1.0 - *x as f64);
             }
-        };
-        
+        };        
         (alpha_m * self.m * self.m) * (1.0 / indicator)
     }
 }
@@ -61,7 +63,7 @@ fn get_first_x_bits(x: u64, pos: usize) -> u64 {
 
 fn leftmost_pos(x: u64, start: usize) -> u8 {
     for i in start..63 {
-        let res = (x & (1 << i));
+        let res = x & (1 << i);
         if res != 0 {
             return (i - start) as u8
         }
@@ -76,33 +78,16 @@ fn hash<T: Hash>(t: &T) -> u64 {
     s.finish()
 }
 
-
 fn main() {
-    println!("Hello, world!");
-    
-
-
-    let mut mset = init_HLL(16); // HLL{p: 16.0, set: &mut [0; 65537]};
-
-    let mut total = 20_000;
-    for i in 1..total {
-        mset.add(&i)
-    };
-
-    let mut estimate = mset.estimate();
-    println!("{:?} ({:?})",    estimate, total);
-    println!("error: {:?}", ((estimate - (total as f64)) / (total as f64)) * 100.0);
+    let mut mset = init_hll(16); // HLL{p: 16.0, set: &mut [0; 65537]};
 
     
-    for j in 1..30 {
-    total += j * 10000;
-        for i in 1..total {
-            mset.add(&i)
-        };
-        // 759 674.17162
-        // 759 489.50858
-        estimate = mset.estimate();
-        println!("estim. {:?} ({:?} uniques)",    estimate as u64, total);
-        println!("error: {:.3} %", ((estimate - (total as f64)) / (total as f64)) * 100.0);
-    }        
+    for j in 1..300_000_000 {
+        mset.add(&j);
+        if j % 10000000 == 0 {
+            let estimate = mset.estimate();
+            println!("estim. {:?} ({:?} uniques)",    estimate as u64, j);
+            println!("error: {:.3} %", ((estimate - (j as f64)) / (j as f64)) * 100.0);
+        }
+    }
 }
